@@ -217,6 +217,10 @@
             <label class="check" for="rWeapons"
               ><input type="checkbox" id="rWeapons" /> Random weapon for each monster</label
             >
+            <div class="field" id="rOwnField">
+              <span class="lab" id="rOwnLab">Weapons for the two players</span>
+              <div class="seg" id="rOwn" role="group" aria-labelledby="rOwnLab"></div>
+            </div>
           </div>
           <div class="step" data-rstep="live">
             <p class="hint">
@@ -289,7 +293,6 @@
           <p class="hint" id="raceSummary"></p>
           <div class="codes" id="raceCodes"></div>
           <ol class="howto" id="raceReadySteps"></ol>
-          <p class="notice" id="raceReadyLink" role="status"></p>
           <div class="wizbar">
             <button type="button" class="btn" id="raceLeave">Back</button>
             <span class="spacer"></span>
@@ -300,11 +303,11 @@
         <section class="controls race" id="raceRun" hidden>
           <div class="racebar">
             <span id="raceLabel"></span>
-            <span id="raceLink"></span>
             <span class="racetime" id="raceTime"></span>
           </div>
+          <div class="streams" id="raceStreams" hidden></div>
           <div class="sides" id="raceSides"></div>
-          <div class="wizbar">
+          <div class="wizbar" id="raceFoot">
             <button type="button" class="btn" id="raceQuit">Quit</button>
             <span class="spacer"></span>
             <button type="button" class="btn" id="raceCopy">Copy result</button>
@@ -329,6 +332,15 @@
     </div>
 
     <div class="rival" id="raceRival" hidden></div>
+    <div class="cornerbar">
+      <div class="reftools" id="raceTools" hidden>
+        <button type="button" class="iconbtn" id="raceExit" aria-label="Leave race" title="Leave race">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6" /></svg>
+        </button>
+        <span id="raceToolSlots"></span>
+      </div>
+      <span id="raceLink" hidden></span>
+    </div>
 
     <div class="pngview" id="pngView" hidden>
       <div class="pngbox">

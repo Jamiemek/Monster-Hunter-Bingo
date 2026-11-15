@@ -27,6 +27,7 @@ let state = {
     split: false,
     special: 0,
     weapons: false,
+    ownWeapons: false,
   },
   race: null,
 };
@@ -580,7 +581,8 @@ function encodeRace(setup) {
   put(setup.special / 5, 4);
   put(setup.weapons ? 1 : 0, 1);
   put(setup.split ? 1 : 0, 1);
-  put(0, 3);
+  put(setup.weapons && setup.ownWeapons ? 1 : 0, 1);
+  put(0, 2);
 
   let code = "";
   for (let i = 3; i >= 0; i--) code += CODE_CHARS[Math.floor(bits / 32 ** i) % 32];
@@ -604,7 +606,8 @@ function decodeRace(text) {
     bits = Math.floor(bits / 2 ** width);
     return value;
   };
-  take(3);
+  take(2);
+  const ownWeapons = take(1) === 1;
   const split = take(1) === 1;
   const weapons = take(1) === 1;
   const special = take(4) * 5;
@@ -616,7 +619,7 @@ function decodeRace(text) {
   if (!games.length || special > 50) return null;
 
   code = code.slice(0, 4) + "-" + code.slice(4);
-  return { code, side, games, rank, diff, length, split, special, weapons };
+  return { code, side, games, rank, diff, length, split, special, weapons, ownWeapons };
 }
 
 function raceRank(game, level) {
@@ -658,21 +661,26 @@ function buildRace(race) {
   const special = candidates.filter((c) => c.special);
 
   let length = race.length;
-  while (length > 1 && normal.length + special.length < length * lists) length--;
+  while (length > 0 && normal.length + special.length < length * lists) length--;
   const wanted = race.special ? Math.max(1, Math.round((length * race.special) / 100)) * lists : 0;
   const specials = special.slice(0, Math.min(wanted, special.length));
   const chosen = specials.concat(normal.slice(0, length * lists - specials.length));
   chosen.push(...special.slice(specials.length, specials.length + length * lists - chosen.length));
   chosen.sort((a, b) => a.difficulty - b.difficulty);
 
+  const sides = race.split || race.ownWeapons ? 2 : 1;
   const steps = [];
   for (let i = 0; i < length; i++) {
-    const step = chosen.slice(i * lists, (i + 1) * lists);
-    if (lists === 2 && rand() < 0.5) step.reverse();
-    const roll = rand();
-    for (const entry of step) {
-      const weapons = weaponsFor(entry.game);
-      if (race.weapons) entry.weapon = weapons[Math.floor(roll * weapons.length)];
+    const picked = chosen.slice(i * lists, (i + 1) * lists);
+    if (lists === 2 && rand() < 0.5) picked.reverse();
+    const rolls = [rand()];
+    rolls.push(race.ownWeapons ? rand() : rolls[0]);
+    const step = [];
+    for (let side = 0; side < sides; side++) {
+      const { game, name, star } = picked[Math.min(side, lists - 1)];
+      const weapons = weaponsFor(game);
+      const weapon = race.weapons ? weapons[Math.floor(rolls[side] * weapons.length)] : undefined;
+      step.push({ game, name, star, weapon });
     }
     steps.push(step);
   }
@@ -681,8 +689,7 @@ function buildRace(race) {
     [steps[i], steps[j]] = [steps[j], steps[i]];
   }
 
-  const toCell = ({ game, name, star, weapon }) => ({ game, name, star, weapon });
-  return [0, 1].slice(0, lists).map((side) => steps.map((step) => toCell(step[side])));
+  return Array.from({ length: sides }, (_, side) => steps.map((step) => step[side]));
 }
 
 function startRace(settings, mode, sides, names, room) {
@@ -846,7 +853,8 @@ function roomValue(name, value) {
 function pushRace() {
   const race = state.race;
   if (!link || !link.live || race.mode !== "ref") return;
-  const value = { code: race.code, names: race.names, startedAt: race.startedAt, sides: race.sides };
+  const { code, names, lists, startedAt, sides } = race;
+  const value = { code, names, lists, startedAt, sides };
   link.send({
     cmd: "Set",
     key: link.key,
@@ -862,6 +870,7 @@ function followRace(value) {
   const other = value.sides.length - 1 - race.side;
   race.startedAt = value.startedAt;
   race.names = [value.names[race.side]];
+  race.lists = [value.lists[race.side]];
   race.sides = [value.sides[race.side]];
   race.rival = { name: value.names[other], ...value.sides[other] };
   save();
@@ -885,7 +894,7 @@ function raceSummary(race) {
     race.split ? "different lists" : "same list",
   ];
   if (race.special) parts.push(`${race.special}% special monsters`);
-  if (race.weapons) parts.push("random weapons");
+  if (race.weapons) parts.push(race.ownWeapons ? "a different random weapon each" : "random weapons");
   return parts.join(", ") + ".";
 }
 
@@ -965,6 +974,16 @@ function renderRaceLobby() {
   $("rSpecial").value = setup.special;
   $("rSpecialOut").textContent = setup.special ? `${setup.special}% of the race` : "None";
   $("rWeapons").checked = setup.weapons;
+  $("rOwnField").hidden = !setup.weapons;
+  segmented(
+    "rOwn",
+    [
+      [false, "Same weapons"],
+      [true, "Different weapons"],
+    ],
+    Boolean(setup.ownWeapons),
+    (ownWeapons) => update({ ownWeapons }),
+  );
 }
 
 function raceStepTo(step) {
@@ -1004,7 +1023,7 @@ function inviteRow(race, side) {
 }
 
 function renderRaceReady(race) {
-  setBackdrop(race.lists[0][0].game);
+  setBackdrop(race.lists[0].length ? race.lists[0][0].game : race.games[0]);
   $("raceSummary").textContent = raceSummary(race);
 
   const waiting = race.mode === "join" && race.room;
@@ -1033,7 +1052,6 @@ function renderRaceReady(race) {
     }),
   );
   $("raceStart").hidden = Boolean(waiting);
-  $("raceReadyLink").textContent = link ? link.status : "";
 }
 
 function rivalMarker(race) {
@@ -1117,47 +1135,12 @@ function splitTimes(race, i) {
   });
 }
 
-function renderSide(race, i) {
+const ICON_TICK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12.5l5 5L20 6.5"/></svg>';
+const ICON_UNDO =
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 13a6.8 6.8 0 1 0 2-5.2L4 11M4 5v6h6"/></svg>';
+
+function sideButtons(race, i) {
   const side = race.sides[i];
-  const list = race.lists[i];
-  const el = document.createElement("div");
-  el.className = "side";
-
-  const head = document.createElement("div");
-  head.className = "sidehead";
-  const who = document.createElement("span");
-  who.className = "who";
-  who.textContent = race.names[i];
-  const count = document.createElement("span");
-  count.textContent = side.finishedAt ? "Finished" : `Monster ${side.pos + 1} of ${list.length}`;
-  head.append(who, count);
-  el.append(head, renderRaceStrip(list, side.pos));
-
-  if (side.finishedAt) {
-    const first = Math.min(...race.sides.map((s) => s.finishedAt || Infinity));
-    const time = document.createElement("p");
-    time.className = "finish";
-    time.textContent = clock(side.finishedAt - race.startedAt);
-    if (race.sides.length > 1 && side.finishedAt === first) {
-      el.classList.add("winner");
-      time.textContent += ", winner";
-    }
-    const splits = document.createElement("ol");
-    splits.className = "splits";
-    for (const text of splitTimes(race, i)) {
-      const li = document.createElement("li");
-      li.textContent = text;
-      splits.appendChild(li);
-    }
-    el.append(time, splits);
-  } else {
-    el.appendChild(targetCard(list[side.pos], race));
-  }
-
-  if (race.mode === "join" && race.room) return el;
-
-  const bar = document.createElement("div");
-  bar.className = "wizbar";
   const undo = document.createElement("button");
   undo.type = "button";
   undo.className = "btn";
@@ -1178,9 +1161,83 @@ function renderSide(race, i) {
     if (side.finishedAt) return;
     side.splits[side.pos] = raceNow();
     side.pos++;
-    if (side.pos === list.length) side.finishedAt = raceNow();
+    if (side.pos === race.lists[i].length) side.finishedAt = raceNow();
     saveRace();
   });
+  return [undo, hunted];
+}
+
+function isWinner(race, i) {
+  const first = Math.min(...race.sides.map((side) => side.finishedAt || Infinity));
+  return race.sides.length > 1 && race.sides[i].finishedAt === first;
+}
+
+// the commentator's strip under each stream: the current monster and progress
+function renderBanner(race, i) {
+  const side = race.sides[i];
+  const list = race.lists[i];
+  const banner = document.createElement("div");
+  banner.className = "banner";
+
+  const now = document.createElement("div");
+  now.className = "current";
+  if (side.finishedAt) {
+    now.textContent = "Finished in " + clock(side.finishedAt - race.startedAt);
+    if (isWinner(race, i)) {
+      banner.classList.add("winner");
+      now.textContent += ", winner";
+    }
+  } else {
+    const cell = list[side.pos];
+    const name = document.createElement("span");
+    name.className = "tname";
+    name.textContent = [cell.star, cell.name].filter(Boolean).join(" ");
+    now.appendChild(name);
+  }
+
+  banner.append(now, renderRaceStrip(list, side.pos));
+  return banner;
+}
+
+function renderSide(race, i) {
+  if (race.mode === "ref") return renderBanner(race, i);
+
+  const side = race.sides[i];
+  const list = race.lists[i];
+  const el = document.createElement("div");
+  el.className = "side";
+
+  const head = document.createElement("div");
+  head.className = "sidehead";
+  const who = document.createElement("span");
+  who.className = "who";
+  who.textContent = race.names[i];
+  const count = document.createElement("span");
+  count.textContent = side.finishedAt ? "Finished" : `Monster ${side.pos + 1} of ${list.length}`;
+  head.append(who, count);
+  el.append(head, renderRaceStrip(list, side.pos));
+
+  if (side.finishedAt) {
+    const time = document.createElement("p");
+    time.className = "finish";
+    time.textContent = clock(side.finishedAt - race.startedAt);
+    const splits = document.createElement("ol");
+    splits.className = "splits";
+    for (const text of splitTimes(race, i)) {
+      const li = document.createElement("li");
+      li.textContent = text;
+      splits.appendChild(li);
+    }
+    el.append(time, splits);
+  } else {
+    el.appendChild(targetCard(list[side.pos], race));
+  }
+
+  if (race.mode === "join" && race.room) return el;
+
+  const bar = document.createElement("div");
+  bar.className = "wizbar";
+  const [undo, hunted] = sideButtons(race, i);
   const spacer = document.createElement("span");
   spacer.className = "spacer";
   bar.append(undo, spacer, hunted);
@@ -1188,14 +1245,142 @@ function renderSide(race, i) {
   return el;
 }
 
+function streamUrl(text) {
+  const youtube = text.match(/(?:youtube\.com\/(?:watch\?v=|live\/|embed\/)|youtu\.be\/)([\w-]{6,})/);
+  if (youtube) return `https://www.youtube.com/embed/${youtube[1]}?autoplay=1&mute=1`;
+  const twitch = text.trim().match(/^(?:https?:\/\/)?(?:www\.)?(?:twitch\.tv\/)?(\w{3,25})\/?$/);
+  if (twitch) return `https://player.twitch.tv/?channel=${twitch[1]}&parent=${location.hostname}&muted=true`;
+  return "";
+}
+
+function streamSlot(race, i) {
+  const slot = document.createElement("div");
+  slot.className = "streamslot";
+
+  const head = document.createElement("div");
+  head.className = "streamhead";
+  const who = document.createElement("span");
+  who.className = "who";
+  who.textContent = race.names[i];
+  const change = document.createElement("button");
+  change.type = "button";
+  change.className = "btn";
+  change.textContent = "Change stream";
+
+  const [undo, hunted] = sideButtons(race, i);
+  undo.className = "iconbtn";
+  undo.innerHTML = ICON_UNDO;
+  undo.title = `${race.names[i]}: undo the last hunt`;
+  hunted.className = "iconbtn tick";
+  hunted.innerHTML = ICON_TICK;
+  hunted.title = `${race.names[i]}: monster hunted`;
+  for (const button of [undo, hunted]) button.setAttribute("aria-label", button.title);
+  const weapon = document.createElement("span");
+  weapon.className = "tweapon";
+  const target = document.createElement("span");
+  target.className = "icon";
+  streamButtons[i] = { undo, hunted, weapon, target };
+  head.append(who, weapon, target, change);
+
+  const screen = document.createElement("div");
+  screen.className = "stream";
+  const input = document.createElement("input");
+  input.type = "text";
+  input.placeholder = "Twitch channel or YouTube link";
+  const note = document.createElement("p");
+
+  const show = () => {
+    const url = streamUrl(race.streams[i]);
+    change.hidden = !url;
+    if (!url) {
+      note.textContent = race.streams[i] ? "That doesn't look like a Twitch channel or YouTube link." : "";
+      screen.replaceChildren(input, note);
+      return;
+    }
+    const frame = document.createElement("iframe");
+    frame.src = url;
+    frame.allow = "autoplay; fullscreen";
+    frame.title = `${race.names[i]}'s stream`;
+    screen.replaceChildren(frame);
+  };
+  input.addEventListener("change", () => {
+    race.streams[i] = input.value.trim();
+    save();
+    show();
+  });
+  change.addEventListener("click", () => {
+    race.streams[i] = input.value = "";
+    save();
+    show();
+  });
+  show();
+
+  slot.append(head, screen);
+  return slot;
+}
+
+// the stream slots are only built once per race, so a stream isn't reloaded by every click
+let streamsFor = "";
+const streamButtons = [];
+
+function renderStreams(race) {
+  const wanted = race.mode === "ref" ? race.code : "";
+  $("raceStreams").hidden = !wanted;
+  if (wanted === streamsFor) return;
+  streamsFor = wanted;
+  race.streams ||= ["", ""];
+  $("raceStreams").replaceChildren(...(wanted ? race.names.map((name, i) => streamSlot(race, i)) : []));
+
+  const tools = [];
+  if (wanted) {
+    for (const { undo, hunted } of streamButtons) {
+      const divider = document.createElement("i");
+      tools.push(divider, undo, hunted);
+    }
+  }
+  $("raceToolSlots").replaceChildren(...tools);
+}
+
+function refreshStreamButtons(race) {
+  if (race.mode !== "ref") return;
+  race.sides.forEach((side, i) => {
+    const { undo, hunted, weapon, target } = streamButtons[i];
+    const cell = race.lists[i][side.pos];
+    const icon = cell && iconFor(cell.game, cell.name);
+    undo.disabled = side.pos === 0;
+    hunted.hidden = Boolean(side.finishedAt);
+    weapon.replaceChildren();
+    if (cell && cell.weapon) weapon.append(weaponBadge(cell.weapon));
+    target.hidden = !icon;
+    if (icon) {
+      target.classList.toggle("px", cell.game === "gu" || cell.game === "frontier");
+      target.title = cell.name;
+      setSprite(target, icon);
+    }
+  });
+}
+
 function raceOver(race) {
   return race.sides.every((side) => side.finishedAt);
+}
+
+// a long monster name gets smaller type first, and wraps only if that isn't enough
+function fitName(el) {
+  for (const size of [15, 13, 12]) {
+    el.style.fontSize = size + "px";
+    if (el.scrollWidth <= el.clientWidth) return;
+  }
+  el.classList.add("wrap");
 }
 
 function renderRace() {
   const race = state.race;
   const screen = !race ? "raceLobby" : race.startedAt ? "raceRun" : "raceReady";
   for (const id of ["raceLobby", "raceReady", "raceRun"]) $(id).hidden = id !== screen;
+  $("raceTools").hidden = !(screen === "raceRun" && race.mode === "ref");
+  $("raceLink").hidden = !link;
+  $("raceLink").textContent = link ? link.status : "";
+  document.querySelector(".wrap").classList.toggle("broadcast", screen === "raceRun" && race.mode === "ref");
 
   if (screen === "raceLobby") {
     renderRaceLobby();
@@ -1206,11 +1391,16 @@ function renderRace() {
     const list = race.lists[Math.max(live, 0)];
     setBackdrop(list[Math.min(race.sides[Math.max(live, 0)].pos, list.length - 1)].game);
     $("raceRun").classList.toggle("wide", race.sides.length > 1);
-    $("raceLabel").textContent = "Race " + race.code;
-    $("raceLink").textContent = link ? link.status : "";
+    $("raceLabel").textContent = race.mode === "ref" ? "" : "Race " + race.code;
     $("raceRival").hidden = !race.rival;
     if (race.rival) $("raceRival").replaceChildren(rivalMarker(race));
+    renderStreams(race);
+    refreshStreamButtons(race);
+    const ref = race.mode === "ref";
+    $("raceQuit").hidden = ref;
+    $("raceFoot").hidden = ref && !raceOver(race);
     $("raceSides").replaceChildren(...race.sides.map((side, i) => renderSide(race, i)));
+    for (const name of document.querySelectorAll(".banner .tname")) fitName(name);
     $("raceCopy").hidden = $("raceAgain").hidden = !raceOver(race);
     tickRace();
   }
@@ -1437,7 +1627,8 @@ function showView(name) {
   $("controls").hidden = name !== "wizard";
   $("editor").hidden = name !== "editor";
   $("race").hidden = name !== "race";
-  $("raceRival").hidden = true;
+  $("raceRival").hidden = $("raceLink").hidden = $("raceTools").hidden = true;
+  if (name !== "race") document.querySelector(".wrap").classList.remove("broadcast");
   document.querySelector(".stage").hidden = name !== "board";
   $("navSave").hidden = $("navReroll").hidden = $("clear").hidden = name !== "board";
   $("navMenu").hidden = name === "menu";
@@ -1856,7 +2047,10 @@ $("rSpecial").addEventListener("input", (e) => {
   state.raceSetup.special = Number(e.target.value);
   $("rSpecialOut").textContent = state.raceSetup.special ? `${state.raceSetup.special}% of the race` : "None";
 });
-$("rWeapons").addEventListener("change", (e) => (state.raceSetup.weapons = e.target.checked));
+$("rWeapons").addEventListener("change", (e) => {
+  state.raceSetup.weapons = e.target.checked;
+  renderRaceLobby();
+});
 $("roomLink").addEventListener("click", () => navigator.clipboard.writeText("Bingo").catch(() => {}));
 $("copySlot").addEventListener("click", async () => {
   try {
@@ -1869,10 +2063,13 @@ $("raceStart").addEventListener("click", () => {
   state.race.startedAt = raceNow();
   saveRace();
 });
-for (const id of ["raceLeave", "raceQuit", "raceAgain"]) {
+for (const id of ["raceLeave", "raceQuit", "raceExit", "raceAgain"]) {
   $(id).addEventListener("click", () => {
     closeLink();
     state.race = null;
+    streamsFor = "";
+    $("raceStreams").replaceChildren();
+    $("raceToolSlots").replaceChildren();
     raceStep = "role";
     save();
     renderRace();
