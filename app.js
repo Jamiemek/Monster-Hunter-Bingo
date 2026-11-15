@@ -19,7 +19,7 @@ let state = {
   raceName: "",
   raceSetup: {
     names: ["", ""],
-    room: { address: "", slot: "", password: "" },
+    room: { address: "", slot: "Bingo", password: "" },
     games: ["world"],
     rank: 1,
     diff: "normal",
@@ -50,6 +50,7 @@ function load() {
     const saved = JSON.parse(localStorage.getItem(STATE_KEY));
     if (saved && GAMES[saved.game] && Array.isArray(saved.cells)) Object.assign(state, saved);
     state.raceSetup = { names: ["", ""], room: { address: "", slot: "", password: "" }, ...state.raceSetup };
+    state.raceSetup.room.slot ||= "Bingo";
     state.race = JSON.parse(sessionStorage.getItem(STATE_KEY));
   } catch (e) {}
 }
@@ -1856,6 +1857,14 @@ $("rSpecial").addEventListener("input", (e) => {
   $("rSpecialOut").textContent = state.raceSetup.special ? `${state.raceSetup.special}% of the race` : "None";
 });
 $("rWeapons").addEventListener("change", (e) => (state.raceSetup.weapons = e.target.checked));
+$("roomLink").addEventListener("click", () => navigator.clipboard.writeText("Bingo").catch(() => {}));
+$("copySlot").addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText("Bingo");
+    $("copySlot").textContent = "Copied";
+    setTimeout(() => ($("copySlot").textContent = "Copy name again"), 1200);
+  } catch (e) {}
+});
 $("raceStart").addEventListener("click", () => {
   state.race.startedAt = raceNow();
   saveRace();

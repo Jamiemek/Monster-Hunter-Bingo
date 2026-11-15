@@ -1538,6 +1538,11 @@ html[data-theme="frontier"] .tile .star {
   gap: 8px;
   line-height: 1.45;
 }
+.howto .btn {
+  margin-left: 6px;
+  padding: 2px 9px;
+  font-size: 12px;
+}
 .race a {
   color: inherit;
   text-decoration: underline;

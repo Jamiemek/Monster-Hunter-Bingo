@@ -221,8 +221,8 @@
           <div class="step" data-rstep="live">
             <p class="hint">
               A live room lets your clicks update both players' screens. It runs on Archipelago, a free
-              multiplayer service, and takes about a minute to set up. Leave the boxes blank to run the race
-              on this screen only.
+              multiplayer service, and takes about a minute to set up. Leave the room address blank to run the
+              race on this screen only.
             </p>
             <ol class="howto">
               <li>
@@ -231,18 +231,20 @@
                   href="https://archipelago.gg/games/ChecksFinder/player-options"
                   target="_blank"
                   rel="noopener"
+                  id="roomLink"
                   >ChecksFinder options page</a
                 >
-                on Archipelago. The race doesn't use that game; it just gives the room something to host.
+                on Archipelago. Clicking the link also copies the player name <b>Bingo</b> for you.
               </li>
               <li>
-                Type a player name at the top and click <b>Generate Game</b> at the bottom. Leave every other
-                option as it is.
+                Paste <b>Bingo</b> into the player name box at the top and click <b>Generate Game</b> at the
+                bottom. Leave every other option as it is.
+                <button type="button" class="btn" id="copySlot">Copy name again</button>
               </li>
               <li>On the page that opens, click <b>Create Room</b>.</li>
               <li>
-                The room page shows an address like <b>archipelago.gg:38281</b> and your player name. Copy
-                both into the boxes below.
+                The room page shows an address like <b>archipelago.gg:38281</b>. Copy it into the first box
+                below. The player name is already filled in.
               </li>
               <li>
                 Rooms go to sleep after two hours without use. Opening the room page again wakes it; you can
