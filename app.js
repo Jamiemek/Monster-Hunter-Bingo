@@ -9,12 +9,26 @@ let state = {
   diff: "normal",
   size: 5,
   free: true,
+  weapons: false,
   varPct: {},
   noExp: {},
   seed: "",
   n: 5,
   cells: [],
   marks: [],
+  raceName: "",
+  raceSetup: {
+    names: ["", ""],
+    room: { address: "", slot: "", password: "" },
+    games: ["world"],
+    rank: 1,
+    diff: "normal",
+    length: 5,
+    split: false,
+    special: 0,
+    weapons: false,
+  },
+  race: null,
 };
 
 let view = "menu";
@@ -23,9 +37,11 @@ let rerollArmed = false;
 let resetArmed = false;
 let edGame = "world";
 
+// a race is kept per tab, so two tabs in one browser can be different people
 function save() {
   try {
-    localStorage.setItem(STATE_KEY, JSON.stringify(state));
+    localStorage.setItem(STATE_KEY, JSON.stringify({ ...state, race: null }));
+    sessionStorage.setItem(STATE_KEY, JSON.stringify(state.race));
   } catch (e) {}
 }
 
@@ -33,6 +49,8 @@ function load() {
   try {
     const saved = JSON.parse(localStorage.getItem(STATE_KEY));
     if (saved && GAMES[saved.game] && Array.isArray(saved.cells)) Object.assign(state, saved);
+    state.raceSetup = { names: ["", ""], room: { address: "", slot: "", password: "" }, ...state.raceSetup };
+    state.race = JSON.parse(sessionStorage.getItem(STATE_KEY));
   } catch (e) {}
 }
 
@@ -123,6 +141,28 @@ function starRows(game, m, ranks) {
   return [options[0]];
 }
 
+function weightCurve(diff) {
+  const weights = DIFFS[diff].w;
+  return (difficulty) => {
+    const x = Math.max(0, Math.min(1, difficulty)) * 4;
+    const i = Math.floor(x);
+    return weights[i] + (weights[Math.min(4, i + 1)] - weights[i]) * (x - i);
+  };
+}
+
+function pickRow(rows, weightAt, rand) {
+  const rowWeights = rows.map((row) => weightAt(row[2]));
+  let roll = rand() * rowWeights.reduce((a, b) => a + b, 0);
+  let i = 0;
+  while (i < rows.length - 1 && (roll -= rowWeights[i]) > 0) i++;
+  return rows[i];
+}
+
+function weaponsFor(game) {
+  const missing = MISSING_WEAPONS[game] || [];
+  return WEAPONS.filter((w) => !missing.includes(w)).concat(EXTRA_WEAPONS[game] || []);
+}
+
 function variantCounts(monsters, total) {
   const counts = {};
   for (const m of monsters) {
@@ -157,14 +197,12 @@ function generate(seed) {
       : `Not enough monsters at this rank for the size you picked, so the board is ${n}×${n}.`;
 
   const percents = Object.keys(VARIANTS).map(varPct).join(",");
-  const rand = rng(hash([seed, state.game, state.rank, state.diff, n, state.free, percents].join("|")));
+  const settings = [seed, state.game, state.rank, state.diff, n, state.free, percents];
+  if (state.weapons) settings.push("weapons");
+  const rand = rng(hash(settings.join("|")));
 
   const weights = DIFFS[state.diff].w;
-  const weightAt = (difficulty) => {
-    const x = Math.max(0, Math.min(1, difficulty)) * 4;
-    const i = Math.floor(x);
-    return weights[i] + (weights[Math.min(4, i + 1)] - weights[i]) * (x - i);
-  };
+  const weightAt = weightCurve(state.diff);
   const zenithBoard = state.game === "frontier" && state.rank === "Z";
   const ranks = poolRanks();
 
@@ -196,16 +234,13 @@ function generate(seed) {
   }
 
   const cells = picked.map(({ m, rows }) => {
-    let star = "";
-    if (rows.length) {
-      const rowWeights = rows.map((row) => weightAt(row[2]));
-      let roll = rand() * rowWeights.reduce((a, b) => a + b, 0);
-      let i = 0;
-      while (i < rows.length - 1 && (roll -= rowWeights[i]) > 0) i++;
-      star = rows[i][1];
-    }
+    const star = rows.length ? pickRow(rows, weightAt, rand)[1] : "";
     return { name: m[0], star };
   });
+  if (state.weapons) {
+    const weapons = weaponsFor(state.game);
+    for (const cell of cells) cell.weapon = weapons[Math.floor(rand() * weapons.length)];
+  }
   if (state.free && n % 2) cells.splice((n * n - 1) / 2, 0, { name: "Free", free: true });
 
   const g = GAMES[state.game];
@@ -313,6 +348,7 @@ function renderControls() {
 
   $("free").checked = state.free;
   $("free").disabled = state.size % 2 === 0;
+  $("weapons").checked = state.weapons;
   $("pool").textContent = poolText();
 }
 
@@ -320,7 +356,7 @@ const STEP_TITLES = ["Choose a game", "Rank and monsters", "Difficulty and board
 
 function setStep(n) {
   wizStep = n;
-  for (const el of document.querySelectorAll(".step")) el.hidden = Number(el.dataset.step) !== n;
+  for (const el of document.querySelectorAll("#controls .step")) el.hidden = Number(el.dataset.step) !== n;
   $("stepNo").textContent = `Step ${n} of 3`;
   $("stepTitle").textContent = STEP_TITLES[n - 1];
   $("wNext").hidden = n === 3;
@@ -345,9 +381,30 @@ function isHyper(name) {
   return name.startsWith(VARIANTS.HY + " ");
 }
 
-function renderTile(cell, i) {
-  const game = boardGame();
-  const h = hash(state.seed + ":" + i);
+function setSprite(el, icon) {
+  const col = icon.i % icon.cols;
+  const row = Math.floor(icon.i / icon.cols);
+  el.style.backgroundImage = `url("${icon.sheet}")`;
+  el.style.backgroundSize = `${icon.cols * 100}% ${icon.rows * 100}%`;
+  el.style.backgroundPosition = `${(col / (icon.cols - 1)) * 100}% ${(row / (icon.rows - 1)) * 100}%`;
+}
+
+function weaponBadge(weapon) {
+  const badge = document.createElement("span");
+  badge.className = "weapon";
+  badge.title = weapon;
+  const i = WEAPONS.indexOf(weapon);
+  if (i < 0) {
+    badge.classList.add("text");
+    badge.textContent = weapon;
+  } else {
+    badge.style.setProperty("--at", `${(i % 5) * 25}% ${Math.floor(i / 5) * 50}%`);
+  }
+  return badge;
+}
+
+function renderTile(cell, key, game) {
+  const h = hash(key);
   const tile = document.createElement("button");
   tile.type = "button";
   tile.className = "tile p" + (h % 3);
@@ -356,7 +413,6 @@ function renderTile(cell, i) {
   tile.style.setProperty("--rot", -(5 + ((h >> 7) % 9)) + "deg");
   tile.style.setProperty("--bx", ((h >> 5) % 300) + "px");
   tile.style.setProperty("--by", ((h >> 11) % 300) + "px");
-  tile.setAttribute("aria-pressed", String(Boolean(state.marks[i])));
 
   if (cell.free) {
     tile.classList.add("free");
@@ -371,11 +427,7 @@ function renderTile(cell, i) {
   if (icon) {
     const img = document.createElement("span");
     img.className = "icon";
-    const col = icon.i % icon.cols;
-    const row = Math.floor(icon.i / icon.cols);
-    img.style.backgroundImage = `url("${icon.sheet}")`;
-    img.style.backgroundSize = `${icon.cols * 100}% ${icon.rows * 100}%`;
-    img.style.backgroundPosition = `${(col / (icon.cols - 1)) * 100}% ${(row / (icon.rows - 1)) * 100}%`;
+    setSprite(img, icon);
     if (game === "rise") img.classList.add("ink");
     if (game === "gu" || game === "frontier") img.classList.add("px");
     if (isHyper(cell.name)) img.classList.add("hyper");
@@ -399,20 +451,28 @@ function renderTile(cell, i) {
   if (longestWord > 10) name.classList.add("long");
   tile.appendChild(name);
 
-  if (!cell.free) {
-    tile.addEventListener("click", () => {
-      state.marks[i] = !state.marks[i];
-      save();
-      updateMarks();
-    });
+  if (cell.weapon) {
+    tile.appendChild(weaponBadge(cell.weapon));
+    tile.title += ", " + cell.weapon;
   }
   return tile;
 }
 
 function renderBoard() {
   const board = $("board");
+  const tiles = state.cells.map((cell, i) => {
+    const tile = renderTile(cell, state.seed + ":" + i, boardGame());
+    if (!cell.free) {
+      tile.addEventListener("click", () => {
+        state.marks[i] = !state.marks[i];
+        save();
+        updateMarks();
+      });
+    }
+    return tile;
+  });
   board.style.setProperty("--n", state.n);
-  board.replaceChildren(...state.cells.map(renderTile));
+  board.replaceChildren(...tiles);
   $("boardTitle").textContent = boardLabel();
   $("boardCode").textContent = "Code " + state.seed;
   updateMarks();
@@ -485,6 +545,691 @@ function updateMarks() {
   if (real && done === real) bingos.textContent = "Blackout!";
   else bingos.textContent = finished.length === 1 ? "1 bingo" : `${finished.length} bingos`;
   bingos.classList.toggle("win", finished.length > 0);
+}
+
+// races
+
+const RACE_RANKS = ["Low", "High", "Master / G", "Zenith"];
+const RACE_LENGTHS = [3, 5, 7, 10];
+const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const RACE_FLOWS = { join: ["role", "join"], host: ["role", "who", "rules", "live"] };
+const RACE_TITLES = {
+  role: "Hosting or joining?",
+  join: "Join a race",
+  who: "Players and games",
+  rules: "Race rules",
+  live: "Live room",
+};
+
+let raceFlow = "host";
+let raceStep = "role";
+
+// a race code is four characters of settings followed by a five character seed
+function encodeRace(setup) {
+  const games = Object.keys(GAMES);
+  let bits = 0;
+  const put = (value, width) => (bits = bits * 2 ** width + value);
+  put(
+    games.reduce((mask, key, i) => mask + (setup.games.includes(key) ? 2 ** i : 0), 0),
+    5,
+  );
+  put(setup.rank, 2);
+  put(Object.keys(DIFFS).indexOf(setup.diff), 2);
+  put(RACE_LENGTHS.indexOf(setup.length), 2);
+  put(setup.special / 5, 4);
+  put(setup.weapons ? 1 : 0, 1);
+  put(setup.split ? 1 : 0, 1);
+  put(0, 3);
+
+  let code = "";
+  for (let i = 3; i >= 0; i--) code += CODE_CHARS[Math.floor(bits / 32 ** i) % 32];
+  return code + "-" + newSeed().slice(0, 5);
+}
+
+// a trailing -1 or -2 says which list the player gets
+function decodeRace(text) {
+  let code = text.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  let side = null;
+  if (code.length === 10 && "12".includes(code[9])) {
+    side = Number(code[9]) - 1;
+    code = code.slice(0, 9);
+  }
+  if (code.length !== 9 || [...code].some((ch) => !CODE_CHARS.includes(ch))) return null;
+
+  let bits = 0;
+  for (const ch of code.slice(0, 4)) bits = bits * 32 + CODE_CHARS.indexOf(ch);
+  const take = (width) => {
+    const value = bits % 2 ** width;
+    bits = Math.floor(bits / 2 ** width);
+    return value;
+  };
+  take(3);
+  const split = take(1) === 1;
+  const weapons = take(1) === 1;
+  const special = take(4) * 5;
+  const length = RACE_LENGTHS[take(2)];
+  const diff = Object.keys(DIFFS)[take(2)];
+  const rank = take(2);
+  const mask = take(5);
+  const games = Object.keys(GAMES).filter((key, i) => Math.floor(mask / 2 ** i) % 2);
+  if (!games.length || special > 50) return null;
+
+  code = code.slice(0, 4) + "-" + code.slice(4);
+  return { code, side, games, rank, diff, length, split, special, weapons };
+}
+
+function raceRank(game, level) {
+  const keys = Object.keys(GAMES[game].ranks);
+  return keys[Math.min(level, keys.length - 1)];
+}
+
+function raceCandidates(race, rand) {
+  const weightAt = weightCurve(race.diff);
+  const found = [];
+  for (const game of race.games) {
+    const g = GAMES[game];
+    const rank = raceRank(game, race.rank);
+    const ranks = (g.pools && g.pools[rank]) || rank;
+    for (const m of g.monsters) {
+      if (m[4] || ![...ranks].some((r) => m[1].includes(r))) continue;
+      const rows = starRows(game, m, ranks);
+      const row = rows.length ? pickRow(rows, weightAt, rand) : null;
+      const difficulty = row ? row[2] : (m[2] - 1) / 4;
+      found.push({
+        game,
+        name: m[0],
+        star: row ? row[1] : "",
+        special: Boolean(m[3]),
+        difficulty,
+        score: Math.pow(rand(), 1 / weightAt(difficulty)),
+      });
+    }
+  }
+  return found.sort((a, b) => b.score - a.score);
+}
+
+// with two lists, each step pairs monsters of similar difficulty
+function buildRace(race) {
+  const rand = rng(hash("race|" + race.code));
+  const candidates = raceCandidates(race, rand);
+  const lists = race.split ? 2 : 1;
+  const normal = candidates.filter((c) => !c.special);
+  const special = candidates.filter((c) => c.special);
+
+  let length = race.length;
+  while (length > 1 && normal.length + special.length < length * lists) length--;
+  const wanted = race.special ? Math.max(1, Math.round((length * race.special) / 100)) * lists : 0;
+  const specials = special.slice(0, Math.min(wanted, special.length));
+  const chosen = specials.concat(normal.slice(0, length * lists - specials.length));
+  chosen.push(...special.slice(specials.length, specials.length + length * lists - chosen.length));
+  chosen.sort((a, b) => a.difficulty - b.difficulty);
+
+  const steps = [];
+  for (let i = 0; i < length; i++) {
+    const step = chosen.slice(i * lists, (i + 1) * lists);
+    if (lists === 2 && rand() < 0.5) step.reverse();
+    const roll = rand();
+    for (const entry of step) {
+      const weapons = weaponsFor(entry.game);
+      if (race.weapons) entry.weapon = weapons[Math.floor(roll * weapons.length)];
+    }
+    steps.push(step);
+  }
+  for (let i = steps.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [steps[i], steps[j]] = [steps[j], steps[i]];
+  }
+
+  const toCell = ({ game, name, star, weapon }) => ({ game, name, star, weapon });
+  return [0, 1].slice(0, lists).map((side) => steps.map((step) => toCell(step[side])));
+}
+
+function startRace(settings, mode, sides, names, room) {
+  const lists = buildRace(settings);
+  state.race = {
+    ...settings,
+    mode,
+    names,
+    room,
+    side: sides[0],
+    lists: sides.map((side) => lists[Math.min(side, lists.length - 1)]),
+    sides: sides.map(() => ({ pos: 0, splits: [], finishedAt: 0 })),
+    startedAt: 0,
+  };
+  save();
+  openLink();
+  renderRace();
+}
+
+function hostRace() {
+  const setup = state.raceSetup;
+  const names = [setup.names[0] || "Player 1", setup.names[1] || "Player 2"];
+  const room = setup.room.address && setup.room.slot ? { ...setup.room } : null;
+  startRace(decodeRace(encodeRace(setup)), "ref", [0, 1], names, room);
+}
+
+// an invite is a race code, optionally followed by @address/slot/password
+function joinRace() {
+  const [code, where] = $("raceCode").value.trim().split("@");
+  const settings = decodeRace(code);
+  if (!settings) {
+    $("raceError").textContent = "That isn't a race code. It looks like ABCD-EFGHJ.";
+    return;
+  }
+  let room = null;
+  if (where) {
+    const [address, slot, password = ""] = where.split("/").map(decodeURIComponent);
+    if (address && slot) room = { address, slot, password };
+  }
+  $("raceCode").value = "";
+  const side = settings.side === null ? 1 : settings.side;
+  startRace(settings, "join", [side], [state.raceName || "Hunter"], room);
+}
+
+function inviteText(race, side) {
+  let text = `${race.code}-${side + 1}`;
+  if (race.room) {
+    const { address, slot, password } = race.room;
+    text += "@" + [address, encodeURIComponent(slot), encodeURIComponent(password)].filter(Boolean).join("/");
+  }
+  return text;
+}
+
+function inviteLink(race, side) {
+  return location.origin + location.pathname + "#join=" + encodeURIComponent(inviteText(race, side));
+}
+
+function inviteMessage(race, side) {
+  return [
+    `${race.names[side]}, you're in a Monster Hunter Bingo race.`,
+    `1. Open this link: ${inviteLink(race, side)}`,
+    "2. Press Join race.",
+    "3. Wait for me to start the clock. Your monsters appear on that page one at a time.",
+    `If the link doesn't fill in the invite, paste this instead: ${inviteText(race, side)}`,
+  ].join("\n");
+}
+
+// live link: the commentator keeps the race in an Archipelago room's data storage and players watch it
+
+let link = null;
+
+function raceNow() {
+  return Date.now() + (link ? link.offset : 0);
+}
+
+function closeLink() {
+  if (link) {
+    clearTimeout(link.retry);
+    link.socket.onclose = null;
+    link.socket.close();
+  }
+  link = null;
+}
+
+function setLinkStatus(text) {
+  link.status = text;
+  if (view === "race") renderRace();
+}
+
+function openLink() {
+  closeLink();
+  const race = state.race;
+  if (!race || !race.room) return;
+
+  const key = "mhbingo:" + race.code;
+  const scheme = location.protocol === "https:" ? "wss://" : "ws://";
+  const socket = new WebSocket(scheme + race.room.address);
+  const send = (...packets) => socket.send(JSON.stringify(packets));
+  link = {
+    socket,
+    key,
+    send,
+    status: "Connecting to the room",
+    offset: 0,
+    live: false,
+    seen: [false, false],
+  };
+
+  socket.onmessage = (event) => {
+    for (const packet of JSON.parse(event.data)) {
+      if (packet.cmd === "RoomInfo") {
+        link.offset = Math.round(packet.time * 1000 - Date.now());
+        send({
+          cmd: "Connect",
+          game: "",
+          name: race.room.slot,
+          password: race.room.password,
+          uuid: "mhbingo-" + race.code,
+          version: packet.version,
+          items_handling: 0,
+          tags: ["TextOnly"],
+          slot_data: false,
+        });
+      } else if (packet.cmd === "Connected") {
+        link.live = true;
+        const seen = [key + ":joined1", key + ":joined2"];
+        if (race.mode === "ref") {
+          pushRace();
+          send({ cmd: "Get", keys: seen }, { cmd: "SetNotify", keys: seen });
+        } else {
+          const operations = [{ operation: "replace", value: Date.now() }];
+          send({ cmd: "Set", key: seen[race.side], default: 0, want_reply: false, operations });
+          send({ cmd: "Get", keys: [key] }, { cmd: "SetNotify", keys: [key] });
+        }
+        setLinkStatus("Connected to the room");
+      } else if (packet.cmd === "ConnectionRefused") {
+        setLinkStatus("The room refused the connection. Check the player name and password.");
+      } else if (packet.cmd === "Retrieved") {
+        for (const [name, value] of Object.entries(packet.keys)) roomValue(name, value);
+      } else if (packet.cmd === "SetReply") {
+        roomValue(packet.key, packet.value);
+      }
+    }
+  };
+  socket.onclose = () => {
+    link.live = false;
+    link.retry = setTimeout(openLink, 5000);
+    setLinkStatus("Can't reach the room. Trying again every few seconds.");
+  };
+}
+
+function roomValue(name, value) {
+  if (name === link.key) return followRace(value);
+  const joined = name.match(/:joined([12])$/);
+  if (joined && value) {
+    link.seen[joined[1] - 1] = true;
+    if (view === "race") renderRace();
+  }
+}
+
+function pushRace() {
+  const race = state.race;
+  if (!link || !link.live || race.mode !== "ref") return;
+  const value = { code: race.code, names: race.names, startedAt: race.startedAt, sides: race.sides };
+  link.send({
+    cmd: "Set",
+    key: link.key,
+    default: null,
+    want_reply: false,
+    operations: [{ operation: "replace", value }],
+  });
+}
+
+function followRace(value) {
+  const race = state.race;
+  if (!race || race.mode !== "join" || !value || value.code !== race.code) return;
+  const other = value.sides.length - 1 - race.side;
+  race.startedAt = value.startedAt;
+  race.names = [value.names[race.side]];
+  race.sides = [value.sides[race.side]];
+  race.rival = { name: value.names[other], ...value.sides[other] };
+  save();
+  if (view === "race") renderRace();
+}
+
+function saveRace() {
+  save();
+  pushRace();
+  renderRace();
+}
+
+function raceSummary(race) {
+  const games = race.games.map((key) => GAMES[key].label).join(" + ");
+  const ranks = [...new Set(race.games.map((key) => GAMES[key].ranks[raceRank(key, race.rank)]))];
+  const parts = [
+    `${race.lists[0].length} monsters`,
+    games,
+    `${ranks.join(" / ")} Rank`,
+    DIFFS[race.diff].label,
+    race.split ? "different lists" : "same list",
+  ];
+  if (race.special) parts.push(`${race.special}% special monsters`);
+  if (race.weapons) parts.push("random weapons");
+  return parts.join(", ") + ".";
+}
+
+function clock(ms) {
+  const total = Math.floor(ms / 1000);
+  const pad = (value) => String(value).padStart(2, "0");
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor(total / 60) % 60;
+  return hours ? `${hours}:${pad(minutes)}:${pad(total % 60)}` : `${minutes}:${pad(total % 60)}`;
+}
+
+function renderRaceLobby() {
+  const setup = state.raceSetup;
+  const flow = RACE_FLOWS[raceFlow];
+  const update = (change) => {
+    Object.assign(setup, change);
+    renderRaceLobby();
+  };
+
+  for (const el of document.querySelectorAll("#raceLobby .step")) el.hidden = el.dataset.rstep !== raceStep;
+  $("raceStepNo").textContent =
+    raceStep === "role" ? "Step 1" : `Step ${flow.indexOf(raceStep) + 1} of ${flow.length}`;
+  $("raceTitle").textContent = RACE_TITLES[raceStep];
+  $("raceNext").hidden = raceStep === "role";
+  $("raceNext").textContent = { join: "Join race", live: "Create race" }[raceStep] || "Next";
+
+  $("joinName").value = state.raceName;
+  $("refName1").value = setup.names[0];
+  $("refName2").value = setup.names[1];
+  $("roomAddress").value = setup.room.address;
+  $("roomSlot").value = setup.room.slot;
+  $("roomPassword").value = setup.room.password;
+
+  const games = $("rGames");
+  games.replaceChildren();
+  for (const [key, g] of Object.entries(GAMES)) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = g.label;
+    b.setAttribute("aria-pressed", String(setup.games.includes(key)));
+    b.addEventListener("click", () => {
+      const picked = Object.keys(GAMES).filter((k) => (k === key) !== setup.games.includes(k));
+      if (picked.length) update({ games: picked });
+    });
+    games.appendChild(b);
+  }
+
+  const levels = Math.max(...setup.games.map((key) => Object.keys(GAMES[key].ranks).length));
+  if (setup.rank >= levels) setup.rank = levels - 1;
+  segmented(
+    "rRank",
+    RACE_RANKS.slice(0, levels).map((label, i) => [i, label]),
+    setup.rank,
+    (rank) => update({ rank }),
+  );
+  segmented(
+    "rDiff",
+    Object.entries(DIFFS).map(([key, d]) => [key, d.label]),
+    setup.diff,
+    (diff) => update({ diff }),
+  );
+  segmented(
+    "rLength",
+    RACE_LENGTHS.map((n) => [n, String(n)]),
+    setup.length,
+    (length) => update({ length }),
+  );
+  segmented(
+    "rSplit",
+    [
+      [false, "Same list"],
+      [true, "Different lists"],
+    ],
+    setup.split,
+    (split) => update({ split }),
+  );
+  $("rSpecial").value = setup.special;
+  $("rSpecialOut").textContent = setup.special ? `${setup.special}% of the race` : "None";
+  $("rWeapons").checked = setup.weapons;
+}
+
+function raceStepTo(step) {
+  raceStep = step;
+  $("raceError").textContent = "";
+  renderRaceLobby();
+}
+
+function copyButton(className, label, text) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = className;
+  button.textContent = label;
+  button.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      button.textContent = "Copied";
+      setTimeout(() => (button.textContent = label), 1200);
+    } catch (e) {}
+  });
+  return button;
+}
+
+function inviteRow(race, side) {
+  const row = document.createElement("div");
+  row.className = "coderow";
+  const who = document.createElement("span");
+  who.textContent = race.names[side];
+  if (link && link.seen[side]) who.textContent += " has joined";
+  const invite = inviteText(race, side);
+  row.append(
+    who,
+    copyButton("racecode", invite, invite),
+    copyButton("btn", "Copy message to send", inviteMessage(race, side)),
+  );
+  return row;
+}
+
+function renderRaceReady(race) {
+  setBackdrop(race.lists[0][0].game);
+  $("raceSummary").textContent = raceSummary(race);
+
+  const waiting = race.mode === "join" && race.room;
+  let steps = ["Press Start race at the same moment as your opponent."];
+  if (race.mode === "ref") {
+    steps = [
+      "Send each player their message. It has a link that fills in their invite.",
+      race.room ? "Wait until both players show as joined." : "Check both players have the race open.",
+      "Press Start race when both players begin hunting.",
+      "Press Hunted under a player each time they finish a monster.",
+    ];
+  } else if (waiting) {
+    steps = [
+      "Keep this page open.",
+      "The race begins when the commentator starts the clock.",
+      "Your monsters appear here one at a time as the commentator confirms each hunt.",
+    ];
+  }
+  const rows = race.mode === "ref" ? race.names.map((name, i) => inviteRow(race, i)) : [];
+  $("raceCodes").replaceChildren(...rows);
+  $("raceReadySteps").replaceChildren(
+    ...steps.map((text) => {
+      const li = document.createElement("li");
+      li.textContent = text;
+      return li;
+    }),
+  );
+  $("raceStart").hidden = Boolean(waiting);
+  $("raceReadyLink").textContent = link ? link.status : "";
+}
+
+function rivalMarker(race) {
+  const { name, pos } = race.rival;
+  const marker = document.createElement("div");
+  const label = document.createElement("span");
+  label.textContent = name;
+  const pips = document.createElement("span");
+  pips.className = "pips";
+  race.lists[0].forEach((cell, i) => {
+    const pip = document.createElement("i");
+    if (i < pos) pip.className = "on";
+    pips.appendChild(pip);
+  });
+  marker.append(label, pips);
+  return marker;
+}
+
+function targetCard(cell, race) {
+  const card = document.createElement("div");
+  card.className = "target";
+
+  const portrait = document.createElement("div");
+  portrait.className = "portrait";
+  const icon = iconFor(cell.game, cell.name);
+  if (icon) {
+    const img = document.createElement("span");
+    img.className = "icon";
+    if (cell.game === "gu" || cell.game === "frontier") img.classList.add("px");
+    setSprite(img, icon);
+    portrait.appendChild(img);
+  } else {
+    portrait.textContent = "?";
+  }
+
+  const info = document.createElement("div");
+  info.className = "info";
+  const line = (className, text) => {
+    const p = document.createElement("p");
+    p.className = className;
+    p.textContent = text;
+    info.appendChild(p);
+    return p;
+  };
+  if (cell.star) line("tstar", cell.star).style.color = starInk(cell.game, cell.name);
+  line("tname", cell.name);
+  if (race.games.length > 1) line("tgame", GAMES[cell.game].label);
+  if (cell.weapon) {
+    const weapon = line("tweapon", cell.weapon);
+    weapon.prepend(weaponBadge(cell.weapon));
+  }
+
+  card.append(portrait, info);
+  return card;
+}
+
+function renderRaceStrip(list, pos) {
+  const strip = document.createElement("div");
+  strip.className = "racestrip";
+  list.forEach((cell, i) => {
+    const slot = document.createElement("span");
+    slot.className = "slot";
+    if (i < pos) {
+      slot.classList.add("done");
+      slot.title = cell.name;
+      const icon = iconFor(cell.game, cell.name);
+      if (icon) setSprite(slot, icon);
+    } else {
+      slot.textContent = i === pos ? i + 1 : "?";
+      if (i === pos) slot.classList.add("now");
+    }
+    strip.appendChild(slot);
+  });
+  return strip;
+}
+
+function splitTimes(race, i) {
+  const { splits } = race.sides[i];
+  return race.lists[i].map((cell, k) => {
+    return `${cell.name}, ${clock(splits[k] - (k ? splits[k - 1] : race.startedAt))}`;
+  });
+}
+
+function renderSide(race, i) {
+  const side = race.sides[i];
+  const list = race.lists[i];
+  const el = document.createElement("div");
+  el.className = "side";
+
+  const head = document.createElement("div");
+  head.className = "sidehead";
+  const who = document.createElement("span");
+  who.className = "who";
+  who.textContent = race.names[i];
+  const count = document.createElement("span");
+  count.textContent = side.finishedAt ? "Finished" : `Monster ${side.pos + 1} of ${list.length}`;
+  head.append(who, count);
+  el.append(head, renderRaceStrip(list, side.pos));
+
+  if (side.finishedAt) {
+    const first = Math.min(...race.sides.map((s) => s.finishedAt || Infinity));
+    const time = document.createElement("p");
+    time.className = "finish";
+    time.textContent = clock(side.finishedAt - race.startedAt);
+    if (race.sides.length > 1 && side.finishedAt === first) {
+      el.classList.add("winner");
+      time.textContent += ", winner";
+    }
+    const splits = document.createElement("ol");
+    splits.className = "splits";
+    for (const text of splitTimes(race, i)) {
+      const li = document.createElement("li");
+      li.textContent = text;
+      splits.appendChild(li);
+    }
+    el.append(time, splits);
+  } else {
+    el.appendChild(targetCard(list[side.pos], race));
+  }
+
+  if (race.mode === "join" && race.room) return el;
+
+  const bar = document.createElement("div");
+  bar.className = "wizbar";
+  const undo = document.createElement("button");
+  undo.type = "button";
+  undo.className = "btn";
+  undo.textContent = "Undo";
+  undo.disabled = side.pos === 0;
+  undo.addEventListener("click", () => {
+    side.pos--;
+    side.splits.length = side.pos;
+    side.finishedAt = 0;
+    saveRace();
+  });
+  const hunted = document.createElement("button");
+  hunted.type = "button";
+  hunted.className = "btn primary";
+  hunted.textContent = "Hunted";
+  hunted.hidden = Boolean(side.finishedAt);
+  hunted.addEventListener("click", () => {
+    if (side.finishedAt) return;
+    side.splits[side.pos] = raceNow();
+    side.pos++;
+    if (side.pos === list.length) side.finishedAt = raceNow();
+    saveRace();
+  });
+  const spacer = document.createElement("span");
+  spacer.className = "spacer";
+  bar.append(undo, spacer, hunted);
+  el.appendChild(bar);
+  return el;
+}
+
+function raceOver(race) {
+  return race.sides.every((side) => side.finishedAt);
+}
+
+function renderRace() {
+  const race = state.race;
+  const screen = !race ? "raceLobby" : race.startedAt ? "raceRun" : "raceReady";
+  for (const id of ["raceLobby", "raceReady", "raceRun"]) $(id).hidden = id !== screen;
+
+  if (screen === "raceLobby") {
+    renderRaceLobby();
+  } else if (screen === "raceReady") {
+    renderRaceReady(race);
+  } else {
+    const live = race.sides.findIndex((side) => !side.finishedAt);
+    const list = race.lists[Math.max(live, 0)];
+    setBackdrop(list[Math.min(race.sides[Math.max(live, 0)].pos, list.length - 1)].game);
+    $("raceRun").classList.toggle("wide", race.sides.length > 1);
+    $("raceLabel").textContent = "Race " + race.code;
+    $("raceLink").textContent = link ? link.status : "";
+    $("raceRival").hidden = !race.rival;
+    if (race.rival) $("raceRival").replaceChildren(rivalMarker(race));
+    $("raceSides").replaceChildren(...race.sides.map((side, i) => renderSide(race, i)));
+    $("raceCopy").hidden = $("raceAgain").hidden = !raceOver(race);
+    tickRace();
+  }
+}
+
+function tickRace() {
+  const race = state.race;
+  if (view !== "race" || !race || !race.startedAt) return;
+  const end = raceOver(race) ? Math.max(...race.sides.map((side) => side.finishedAt)) : raceNow();
+  $("raceTime").textContent = clock(end - race.startedAt);
+}
+
+function raceResultText() {
+  const race = state.race;
+  const lines = [];
+  race.sides.forEach((side, i) => {
+    lines.push(`${race.names[i]} finished race ${race.code} in ${clock(side.finishedAt - race.startedAt)}`);
+    splitTimes(race, i).forEach((text, k) => lines.push(`${k + 1}. ${text}`));
+  });
+  return lines.join("\n");
 }
 
 // monster settings
@@ -690,6 +1435,8 @@ function showView(name) {
   $("menu").hidden = name !== "menu";
   $("controls").hidden = name !== "wizard";
   $("editor").hidden = name !== "editor";
+  $("race").hidden = name !== "race";
+  $("raceRival").hidden = true;
   document.querySelector(".stage").hidden = name !== "board";
   $("navSave").hidden = $("navReroll").hidden = $("clear").hidden = name !== "board";
   $("navMenu").hidden = name === "menu";
@@ -710,6 +1457,8 @@ function showView(name) {
   } else if (name === "board") {
     setBackdrop(boardGame());
     updateMarks();
+  } else if (name === "race") {
+    renderRace();
   } else if (name === "editor") {
     edGame = boardGame();
     $("edGame").value = edGame;
@@ -779,10 +1528,11 @@ async function boardPNG() {
   const c = canvas.getContext("2d");
 
   const paperFile = game === "world" || game === "wilds" ? "img/tex-kraft.webp" : "img/tex-paper.webp";
-  const [sheet, stamp, paper] = await Promise.all([
+  const [sheet, stamp, paper, weaponSheet] = await Promise.all([
     loadImage(ICONS[game].sheet),
     loadImage("img/stamp-hunted.webp"),
     loadImage(paperFile),
+    loadImage("img/weapons.webp"),
   ]);
   await document.fonts.ready;
 
@@ -905,6 +1655,44 @@ async function boardPNG() {
       c.restore();
     }
 
+    if (cell.weapon) {
+      const wi = WEAPONS.indexOf(cell.weapon);
+      const r = size * 0.15;
+      const cx = size * 0.04 + r;
+      const cy = size * 0.96 - r;
+      c.save();
+      if (marked) c.globalAlpha = 0.45;
+      c.fillStyle = "#2a180a";
+      c.strokeStyle = "#f3e6c4";
+      c.lineWidth = size * 0.012;
+      c.beginPath();
+      c.arc(cx, cy, r, 0, Math.PI * 2);
+      c.fill();
+      c.stroke();
+      if (wi >= 0 && weaponSheet) {
+        const d = r * 1.5;
+        c.drawImage(
+          weaponSheet,
+          (wi % 5) * 96,
+          Math.floor(wi / 5) * 96,
+          96,
+          96,
+          cx - d / 2,
+          cy - d / 2,
+          d,
+          d,
+        );
+      } else {
+        c.font = `700 ${size * 0.05}px ${bodyFont}`;
+        c.fillStyle = "#f3e6c4";
+        c.textAlign = "center";
+        wrapText(c, cell.weapon, r * 1.7).forEach((text, k, all) => {
+          c.fillText(text, cx, cy + (k - (all.length - 1) / 2) * size * 0.055);
+        });
+      }
+      c.restore();
+    }
+
     if (marked && stamp) {
       const w = size * 0.98;
       const stampHeight = (w * stamp.height) / stamp.width;
@@ -984,6 +1772,7 @@ for (const [key, g] of Object.entries(GAMES)) {
 
 $("mContinue").addEventListener("click", () => showView("board"));
 $("mNew").addEventListener("click", () => showView("wizard"));
+$("mRace").addEventListener("click", () => showView("race"));
 $("mSettings").addEventListener("click", () => showView("editor"));
 $("navMenu").addEventListener("click", () => showView("menu"));
 $("navSave").addEventListener("click", savePNG);
@@ -996,6 +1785,7 @@ $("exp").addEventListener("change", (e) => {
   renderControls();
 });
 $("free").addEventListener("change", (e) => (state.free = e.target.checked));
+$("weapons").addEventListener("change", (e) => (state.weapons = e.target.checked));
 $("controls").addEventListener("submit", (e) => {
   e.preventDefault();
   if (wizStep < 3) return setStep(wizStep + 1);
@@ -1026,6 +1816,67 @@ $("boardCode").addEventListener("click", async () => {
     setTimeout(() => ($("boardCode").textContent = "Code " + state.seed), 1200);
   } catch (e) {}
 });
+
+$("raceHosting").addEventListener("click", () => {
+  raceFlow = "host";
+  raceStepTo("who");
+});
+$("raceJoining").addEventListener("click", () => {
+  raceFlow = "join";
+  raceStepTo("join");
+});
+$("raceBack").addEventListener("click", () => {
+  const flow = RACE_FLOWS[raceFlow];
+  const i = flow.indexOf(raceStep);
+  if (i === 0) showView("menu");
+  else raceStepTo(flow[i - 1]);
+});
+$("raceNext").addEventListener("click", () => {
+  if (raceStep === "join") return joinRace();
+  if (raceStep === "live") return hostRace();
+  setBackdrop(state.raceSetup.games[0]);
+  raceStepTo(raceStep === "who" ? "rules" : "live");
+});
+$("joinName").addEventListener("input", (e) => {
+  state.raceName = e.target.value.trim();
+  save();
+});
+for (const [id, field] of [
+  ["roomAddress", "address"],
+  ["roomSlot", "slot"],
+  ["roomPassword", "password"],
+]) {
+  $(id).addEventListener("input", (e) => (state.raceSetup.room[field] = e.target.value.trim()));
+}
+["refName1", "refName2"].forEach((id, i) => {
+  $(id).addEventListener("input", (e) => (state.raceSetup.names[i] = e.target.value.trim()));
+});
+$("rSpecial").addEventListener("input", (e) => {
+  state.raceSetup.special = Number(e.target.value);
+  $("rSpecialOut").textContent = state.raceSetup.special ? `${state.raceSetup.special}% of the race` : "None";
+});
+$("rWeapons").addEventListener("change", (e) => (state.raceSetup.weapons = e.target.checked));
+$("raceStart").addEventListener("click", () => {
+  state.race.startedAt = raceNow();
+  saveRace();
+});
+for (const id of ["raceLeave", "raceQuit", "raceAgain"]) {
+  $(id).addEventListener("click", () => {
+    closeLink();
+    state.race = null;
+    raceStep = "role";
+    save();
+    renderRace();
+  });
+}
+$("raceCopy").addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(raceResultText());
+    $("raceCopy").textContent = "Copied";
+    setTimeout(() => ($("raceCopy").textContent = "Copy result"), 1200);
+  } catch (e) {}
+});
+setInterval(tickRace, 500);
 
 $("edGame").addEventListener("change", (e) => {
   edGame = e.target.value;
@@ -1086,6 +1937,20 @@ new ResizeObserver(() => {
 
 loadRoster();
 load();
+openLink();
 renderControls();
 if (state.cells.length) renderBoard();
 showView("menu");
+
+function openInviteLink() {
+  if (!location.hash.startsWith("#join=")) return;
+  showView("race");
+  if (!state.race) {
+    raceFlow = "join";
+    raceStepTo("join");
+    $("raceCode").value = decodeURIComponent(location.hash.slice(6));
+  }
+  history.replaceState(null, "", location.pathname);
+}
+window.addEventListener("hashchange", openInviteLink);
+openInviteLink();

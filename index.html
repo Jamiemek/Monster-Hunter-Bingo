@@ -40,6 +40,7 @@
           Continue board<small id="mContinueInfo"></small>
         </button>
         <button type="button" class="plank" id="mNew">New bingo board</button>
+        <button type="button" class="plank" id="mRace">Race</button>
         <button type="button" class="plank" id="mSettings">Monster settings</button>
       </section>
 
@@ -116,6 +117,9 @@
           <label class="check" for="free"
             ><input type="checkbox" id="free" checked /> Free centre square</label
           >
+          <label class="check" for="weapons"
+            ><input type="checkbox" id="weapons" /> Random weapon for each monster</label
+          >
           <div class="field">
             <label for="seed">Board code (optional)</label>
             <input
@@ -137,6 +141,176 @@
         </div>
       </form>
 
+      <div id="race" hidden>
+        <section class="controls race" id="raceLobby">
+          <p class="stepno" id="raceStepNo"></p>
+          <h2 id="raceTitle"></h2>
+          <div class="step" data-rstep="role">
+            <div class="choices">
+              <button type="button" class="choice" id="raceHosting">
+                Hosting<small>Set up a race as its commentator</small>
+              </button>
+              <button type="button" class="choice" id="raceJoining">
+                Joining<small>Enter a code someone sent you</small>
+              </button>
+            </div>
+          </div>
+          <div class="step" data-rstep="join">
+            <ol class="howto">
+              <li>
+                Paste the invite your commentator sent you into the box below. If they sent a link, it is
+                already filled in.
+              </li>
+              <li>Press <b>Join race</b>.</li>
+              <li>
+                Wait for the commentator to start the clock. Your first monster appears when they do, and the
+                next one each time they confirm a hunt.
+              </li>
+              <li>Your opponent's progress shows as a row of dots in the bottom corner of the screen.</li>
+            </ol>
+            <div class="field">
+              <label for="joinName">Your name (only used when the race has no live room)</label>
+              <input type="text" id="joinName" maxlength="20" autocomplete="off" />
+            </div>
+            <div class="field">
+              <label for="raceCode">Race code or invite</label>
+              <input type="text" id="raceCode" autocomplete="off" spellcheck="false" />
+              <p class="notice" id="raceError" role="status"></p>
+            </div>
+          </div>
+          <div class="step" data-rstep="who">
+            <div class="field" id="refNamesField">
+              <label for="refName1">Players</label>
+              <input type="text" id="refName1" maxlength="20" autocomplete="off" placeholder="Player 1" />
+              <input type="text" id="refName2" maxlength="20" autocomplete="off" placeholder="Player 2" />
+            </div>
+            <div class="field">
+              <span class="lab" id="rGamesLab">Games</span>
+              <div class="seg wrap-seg" id="rGames" role="group" aria-labelledby="rGamesLab"></div>
+            </div>
+            <div class="field">
+              <span class="lab" id="rRankLab">Rank</span>
+              <div class="seg" id="rRank" role="group" aria-labelledby="rRankLab"></div>
+            </div>
+          </div>
+          <div class="step" data-rstep="rules">
+            <div class="field">
+              <span class="lab" id="rDiffLab">Difficulty</span>
+              <div class="seg" id="rDiff" role="group" aria-labelledby="rDiffLab"></div>
+            </div>
+            <div class="field">
+              <span class="lab" id="rLengthLab">Monsters</span>
+              <div class="seg" id="rLength" role="group" aria-labelledby="rLengthLab"></div>
+            </div>
+            <div class="field">
+              <span class="lab" id="rSplitLab">Lists</span>
+              <div class="seg" id="rSplit" role="group" aria-labelledby="rSplitLab"></div>
+            </div>
+            <div class="field">
+              <span class="lab">Special monsters</span>
+              <label class="vrow" for="rSpecial">
+                <span class="vname">Tempered, Afflicted and so on</span>
+                <input type="range" id="rSpecial" min="0" max="50" step="5" />
+                <output for="rSpecial" id="rSpecialOut"></output>
+              </label>
+            </div>
+            <label class="check" for="rWeapons"
+              ><input type="checkbox" id="rWeapons" /> Random weapon for each monster</label
+            >
+          </div>
+          <div class="step" data-rstep="live">
+            <p class="hint">
+              A live room lets your clicks update both players' screens. It runs on Archipelago, a free
+              multiplayer service, and takes about a minute to set up. Leave the boxes blank to run the race
+              on this screen only.
+            </p>
+            <ol class="howto">
+              <li>
+                Open the
+                <a
+                  href="https://archipelago.gg/games/ChecksFinder/player-options"
+                  target="_blank"
+                  rel="noopener"
+                  >ChecksFinder options page</a
+                >
+                on Archipelago. The race doesn't use that game; it just gives the room something to host.
+              </li>
+              <li>
+                Type a player name at the top and click <b>Generate Game</b> at the bottom. Leave every other
+                option as it is.
+              </li>
+              <li>On the page that opens, click <b>Create Room</b>.</li>
+              <li>
+                The room page shows an address like <b>archipelago.gg:38281</b> and your player name. Copy
+                both into the boxes below.
+              </li>
+              <li>
+                Rooms go to sleep after two hours without use. Opening the room page again wakes it; you can
+                find your rooms under
+                <a href="https://archipelago.gg/user-content" target="_blank" rel="noopener">User Content</a>.
+              </li>
+            </ol>
+            <p class="hint">
+              Stuck? See the
+              <a href="https://archipelago.gg/tutorial/Archipelago/setup/en" target="_blank" rel="noopener"
+                >Archipelago setup guide</a
+              >.
+            </p>
+            <div class="field">
+              <label for="roomAddress">Room address</label>
+              <input
+                type="text"
+                id="roomAddress"
+                autocomplete="off"
+                spellcheck="false"
+                placeholder="archipelago.gg:38281"
+              />
+            </div>
+            <div class="field">
+              <label for="roomSlot">Player name in the room</label>
+              <input type="text" id="roomSlot" autocomplete="off" spellcheck="false" />
+            </div>
+            <div class="field">
+              <label for="roomPassword">Room password (if it has one)</label>
+              <input type="text" id="roomPassword" autocomplete="off" spellcheck="false" />
+            </div>
+          </div>
+          <div class="wizbar">
+            <button type="button" class="btn" id="raceBack">Back</button>
+            <span class="spacer"></span>
+            <button type="button" class="btn primary" id="raceNext"></button>
+          </div>
+        </section>
+
+        <section class="controls race" id="raceReady" hidden>
+          <h2>Ready to race</h2>
+          <p class="hint" id="raceSummary"></p>
+          <div class="codes" id="raceCodes"></div>
+          <ol class="howto" id="raceReadySteps"></ol>
+          <p class="notice" id="raceReadyLink" role="status"></p>
+          <div class="wizbar">
+            <button type="button" class="btn" id="raceLeave">Back</button>
+            <span class="spacer"></span>
+            <button type="button" class="btn primary" id="raceStart">Start race</button>
+          </div>
+        </section>
+
+        <section class="controls race" id="raceRun" hidden>
+          <div class="racebar">
+            <span id="raceLabel"></span>
+            <span id="raceLink"></span>
+            <span class="racetime" id="raceTime"></span>
+          </div>
+          <div class="sides" id="raceSides"></div>
+          <div class="wizbar">
+            <button type="button" class="btn" id="raceQuit">Quit</button>
+            <span class="spacer"></span>
+            <button type="button" class="btn" id="raceCopy">Copy result</button>
+            <button type="button" class="btn primary" id="raceAgain">New race</button>
+          </div>
+        </section>
+      </div>
+
       <section class="stage" hidden>
         <div class="rig">
           <div class="status">
@@ -151,6 +325,8 @@
         <p class="notice" id="notice" role="status"></p>
       </section>
     </div>
+
+    <div class="rival" id="raceRival" hidden></div>
 
     <div class="pngview" id="pngView" hidden>
       <div class="pngbox">

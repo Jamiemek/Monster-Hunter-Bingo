@@ -288,6 +288,14 @@ const THEMES = {
   wilds: { oak: "#6f4d2f", frame: "#59402a", slip: "#f0dfae" },
 };
 
+// in sprite sheet order
+const WEAPONS = [
+  "Great Sword", "Long Sword", "Sword and Shield", "Dual Blades", "Hammer", "Hunting Horn", "Lance",
+  "Gunlance", "Switch Axe", "Charge Blade", "Insect Glaive", "Light Bowgun", "Heavy Bowgun", "Bow",
+];
+const EXTRA_WEAPONS = { gu: ["Prowler"], frontier: ["Tonfa", "Magnet Spike"] };
+const MISSING_WEAPONS = { frontier: ["Charge Blade", "Insect Glaive"] };
+
 // star label colours, matched to the icon outlines
 const STAR_INK = {
   world: { T: "#7250d8", AT: "#e06030" },
