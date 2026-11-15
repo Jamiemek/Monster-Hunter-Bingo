@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Monster Hunter Bingo</title>
+    <meta
+      name="description"
+      content="Make a bingo board of monsters to hunt for Monster Hunter World, Rise, Generations Ultimate, Frontier or Wilds."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Alegreya:ital,wght@0,500;0,700;1,500&family=Source+Sans+3:wght@400;600&family=Marcellus&family=Noto+Sans:wght@400;600&family=Lilita+One&family=Pixelify+Sans:wght@500;700&family=Caveat+Brush&family=Nanum+Brush+Script&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <filter id="rough">
+        <feTurbulence type="fractalNoise" baseFrequency=".85" numOctaves="2" seed="4" />
+        <feDisplacementMap in="SourceGraphic" scale="2.2" />
+      </filter>
+    </svg>
+    <div class="wrap" data-view="menu">
+      <header>
+        <div class="crest" aria-hidden="true"></div>
+        <div class="sign"><h1>Monster Hunter Bingo</h1></div>
+        <nav class="nav" aria-label="Page actions">
+          <button type="button" class="tab" id="navSave">Save board PNG</button>
+          <button type="button" class="tab" id="navReroll">New board</button>
+          <button type="button" class="tab" id="clear">Clear marks</button>
+          <button type="button" class="tab" id="navMenu">Main menu</button>
+        </nav>
+      </header>
+
+      <section class="menu" id="menu">
+        <button type="button" class="plank main" id="mContinue" hidden>
+          Continue board<small id="mContinueInfo"></small>
+        </button>
+        <button type="button" class="plank" id="mNew">New bingo board</button>
+        <button type="button" class="plank" id="mSettings">Monster settings</button>
+      </section>
+
+      <section class="editor" id="editor" hidden>
+        <h2>Monster settings</h2>
+        <p class="hint">
+          Set which ranks each monster appears in and whether it can come up at all. Threat is only used for
+          monsters without a star level in that rank. Changes save as you make them and apply to the next
+          board you generate.
+        </p>
+        <div class="ed-bar">
+          <div class="field">
+            <label for="edGame">Game</label
+            ><select id="edGame"></select>
+          </div>
+          <div class="field">
+            <label for="edSearch">Find a monster</label
+            ><input type="text" id="edSearch" autocomplete="off" placeholder="Type a name" />
+          </div>
+          <div class="field">
+            <label for="edRank">Show</label
+            ><select id="edRank"></select>
+          </div>
+        </div>
+        <div class="ed-bar">
+          <button type="button" class="btn" id="resetGame">Reset this game</button>
+        </div>
+        <div class="ed-counts" id="edCounts"></div>
+        <div class="ed-list" id="edList"></div>
+        <div class="ed-io">
+          <label class="lab" for="ioBox">Back up or move your settings</label>
+          <p class="hint">
+            Settings live in this browser only. Copy them to keep a backup or use them on another device, then
+            paste here and apply.
+          </p>
+          <textarea id="ioBox" spellcheck="false" placeholder="Paste copied settings here"></textarea>
+          <div class="actions">
+            <button type="button" class="btn" id="ioCopy">Copy my settings</button>
+            <button type="button" class="btn" id="ioApply">Apply pasted settings</button>
+            <span class="notice" id="ioMsg" role="status"></span>
+          </div>
+        </div>
+      </section>
+
+      <form class="controls" id="controls" hidden>
+        <p class="stepno" id="stepNo"></p>
+        <h2 id="stepTitle"></h2>
+        <div class="step" data-step="1">
+          <div class="games" id="games"></div>
+        </div>
+        <div class="step" data-step="2">
+          <div class="field">
+            <span class="lab" id="rankLab">Rank</span>
+            <div class="seg" id="rank" role="group" aria-labelledby="rankLab"></div>
+          </div>
+          <label class="check" for="exp" id="expField"
+            ><input type="checkbox" id="exp" /> <span id="expLab"></span
+          ></label>
+          <div class="field" id="varField">
+            <span class="lab">Special monsters</span>
+            <div id="variants"></div>
+          </div>
+          <p class="pool" id="pool"></p>
+        </div>
+        <div class="step" data-step="3">
+          <div class="field">
+            <span class="lab" id="diffLab">Difficulty</span>
+            <div class="seg" id="diff" role="group" aria-labelledby="diffLab"></div>
+          </div>
+          <div class="field">
+            <span class="lab" id="sizeLab">Board size</span>
+            <div class="seg" id="size" role="group" aria-labelledby="sizeLab"></div>
+          </div>
+          <label class="check" for="free"
+            ><input type="checkbox" id="free" checked /> Free centre square</label
+          >
+          <div class="field">
+            <label for="seed">Board code (optional)</label>
+            <input
+              type="text"
+              id="seed"
+              maxlength="12"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="Blank for a random board"
+            />
+            <p class="hint">Enter a friend's code with the same settings to get the same board.</p>
+          </div>
+        </div>
+        <div class="wizbar">
+          <button type="button" class="btn" id="wBack">Back</button>
+          <span class="spacer"></span>
+          <button type="button" class="btn primary" id="wNext">Next</button>
+          <button type="submit" class="btn primary" id="generate">Create board</button>
+        </div>
+      </form>
+
+      <section class="stage" hidden>
+        <div class="rig">
+          <div class="status">
+            <span class="title" id="boardTitle"></span>
+            <span class="pill" id="count">0 of 0 hunted</span>
+            <span class="pill" id="bingos">0 bingos</span>
+            <button type="button" class="code" id="boardCode" title="Copy board code"></button>
+          </div>
+          <span class="post l"></span><span class="post r"></span>
+          <div class="board" id="board"></div>
+        </div>
+        <p class="notice" id="notice" role="status"></p>
+      </section>
+    </div>
+
+    <div class="pngview" id="pngView" hidden>
+      <div class="pngbox">
+        <p>The picture could not be made. Try again, or take a screenshot of the board.</p>
+        <button type="button" class="btn" id="pngClose">Close</button>
+      </div>
+    </div>
+    <script src="data.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
